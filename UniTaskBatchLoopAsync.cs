@@ -2,6 +2,7 @@ namespace Batch_Loop_Async.UniTask
 {
     using System;
     using System.Collections.Generic;
+    using System.Threading;
     using Cysharp.Threading.Tasks;
     using UnityEngine;
 
@@ -10,62 +11,118 @@ namespace Batch_Loop_Async.UniTask
     {
         #region Common Loop
 
-        public static async UniTask UniTaskBatchLoop(int totaliterations, int batchsize, Action<int> process)
+        /// <summary>
+        /// Menjalankan loop batch per frame (forward/reverse) untuk menghindari freeze/frame drop di Unity.
+        /// </summary>
+        public static async UniTask UniTaskBatchLoop(int totalIterations, int batchSize, Action<int> process,
+            bool reverse = false, PlayerLoopTiming timing = PlayerLoopTiming.Update,
+            CancellationToken cancellationToken = default)
         {
-            for (int i = 0; i < totaliterations; i += batchsize)
+            if (totalIterations <= 0) return;
+
+            batchSize = Mathf.Max(1, batchSize);
+
+            if (!reverse)
             {
-                int end = Mathf.Min(i + batchsize, totaliterations);
-                for (int j = i; j < end; j++)
-                    process(j);
-                await UniTask.Yield(); // Prevent Unity freezing
+                for (int i = 0; i < totalIterations; i += batchSize)
+                {
+                    int end = Mathf.Min(i + batchSize, totalIterations);
+                    for (int j = i; j < end; j++)
+                        process(j);
+                    await UniTask.NextFrame(timing, cancellationToken);
+                }
+            }
+            else
+            {
+                for (int i = totalIterations; i > 0; i -= batchSize)
+                {
+                    int start = Mathf.Max(i - batchSize, 0);
+                    for (int j = i - 1; j >= start; j--)
+                        process(j);
+                    await UniTask.NextFrame(timing, cancellationToken);
+                }
             }
         }
 
-        public static async UniTask UniTaskBatchLoop<T>(T[] arraydata, int batchsize, Action<T> process) =>
-            await UniTaskBatchLoop(arraydata.Length, batchsize, (i) => process(arraydata[i]));
-
-        public static async UniTask UniTaskBatchLoopReverse(int totaliterations, int batchsize, Action<int> process)
+        /// <summary>
+        /// Overload untuk memproses koleksi IReadOnlyList (List, Array, dll.).
+        /// Memanggil fungsi utama UniTaskBatchLoop agar konsisten dengan pola GetAll.
+        /// </summary>
+        public static async UniTask UniTaskBatchLoop<T>(
+            IReadOnlyList<T> listData,
+            int batchSize,
+            Action<T> process,
+            bool reverse = false,
+            PlayerLoopTiming timing = PlayerLoopTiming.Update,
+            CancellationToken cancellationToken = default)
         {
-            for (int i = totaliterations; i > 0; i -= batchsize)
-            {
-                int start = Mathf.Max(i - batchsize, 0);
-                for (int j = i - 1; j >= start; j--)
-                    process(j);
-                await UniTask.Yield(); // Prevent Unity freezing
-            }
+            if (listData == null || listData.Count == 0) return;
+
+            await UniTaskBatchLoop(
+                listData.Count,
+                batchSize,
+                (i) => process(listData[i]),
+                reverse,
+                timing,
+                cancellationToken);
         }
-
-        public static async UniTask UniTaskBatchLoopReverse<T>(T[] arraydata, int batchsize, Action<T> process) =>
-            await UniTaskBatchLoopReverse(arraydata.Length, batchsize, (i) => process(arraydata[i]));
-
         #endregion
 
         #region Get All
 
-        public static async UniTask<T[]> UniTaskBatchLoopGetAll<T>(int totaliterations, int batchsize,
-            Func<int, T> process)
+        /// <summary>
+        /// Menjalankan loop batch dan mengembalikan kumpulan hasilnya ke dalam Array (Forward/Reverse).
+        /// Menggunakan UniTaskBatchLoop (CommonLoop) agar konsisten dan terpusat.
+        /// </summary>
+        public static async UniTask<TResult[]> UniTaskBatchLoopGetAll<TResult>(
+            int totalIterations,
+            int batchSize,
+            Func<int, TResult> process,
+            bool reverse = false,
+            PlayerLoopTiming timing = PlayerLoopTiming.Update,
+            CancellationToken cancellationToken = default)
         {
-            var results = new List<T>();
+            if (totalIterations <= 0) return Array.Empty<TResult>();
 
-            for (int i = 0; i < totaliterations; i += batchsize)
-            {
-                int end = Mathf.Min(i + batchsize, totaliterations);
-                for (int j = i; j < end; j++)
+            var results = new List<TResult>(totalIterations);
+
+            await UniTaskBatchLoop(
+                totalIterations,
+                batchSize,
+                (i) =>
                 {
-                    T result = process(j);
+                    TResult result = process(i);
                     if (result != null)
                         results.Add(result);
-                }
-
-                await UniTask.NextFrame(); // Prevent Unity freezing
-            }
+                },
+                reverse,
+                timing,
+                cancellationToken);
 
             return results.ToArray();
         }
 
-        public static async UniTask<T[]> UniTaskBatchLoopGetAll<T>(T[] arraydata, int batchsize, Func<T, T> process) =>
-            await UniTaskBatchLoopGetAll(arraydata.Length, batchsize, (i) => process(arraydata[i]));
+        /// <summary>
+        /// Overload untuk memproses List/Array sumber dan mengembalikan Array hasil (mendukung konversi tipe data).
+        /// </summary>
+        public static async UniTask<TResult[]> UniTaskBatchLoopGetAll<TSource, TResult>(
+            IReadOnlyList<TSource> listData,
+            int batchSize,
+            Func<TSource, TResult> process,
+            bool reverse = false,
+            PlayerLoopTiming timing = PlayerLoopTiming.Update,
+            CancellationToken cancellationToken = default)
+        {
+            if (listData == null || listData.Count == 0) return Array.Empty<TResult>();
 
+            return await UniTaskBatchLoopGetAll(
+                listData.Count,
+                batchSize,
+                (i) => process(listData[i]),
+                reverse,
+                timing,
+                cancellationToken);
+        }
         #endregion
 
         #region Get One

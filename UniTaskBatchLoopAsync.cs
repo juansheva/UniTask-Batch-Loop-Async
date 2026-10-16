@@ -18,7 +18,11 @@ namespace Batch_Loop_Async.UniTask
             bool reverse = false, PlayerLoopTiming timing = PlayerLoopTiming.Update,
             CancellationToken cancellationToken = default)
         {
-            if (totalIterations <= 0) return;
+            if (totalIterations <= 0)
+            {
+                Debug.LogWarning("Total iterations must be greater than 0");
+                return;
+            }
 
             batchSize = Mathf.Max(1, batchSize);
 
@@ -48,23 +52,18 @@ namespace Batch_Loop_Async.UniTask
         /// Overload untuk memproses koleksi IReadOnlyList (List, Array, dll.).
         /// Memanggil fungsi utama UniTaskBatchLoop agar konsisten dengan pola GetAll.
         /// </summary>
-        public static async UniTask UniTaskBatchLoop<T>(
-            IReadOnlyList<T> listData,
-            int batchSize,
-            Action<T> process,
-            bool reverse = false,
-            PlayerLoopTiming timing = PlayerLoopTiming.Update,
+        public static async UniTask UniTaskBatchLoop<T>(IReadOnlyList<T> listData, int batchSize, Action<T> process,
+            bool reverse = false, PlayerLoopTiming timing = PlayerLoopTiming.Update, 
             CancellationToken cancellationToken = default)
         {
-            if (listData == null || listData.Count == 0) return;
+            if (listData == null)
+            {
+                Debug.LogWarning("List data must not be null");
+                return;
+            }
 
-            await UniTaskBatchLoop(
-                listData.Count,
-                batchSize,
-                (i) => process(listData[i]),
-                reverse,
-                timing,
-                cancellationToken);
+            await UniTaskBatchLoop(listData.Count, batchSize, (i) => process(listData[i]),
+                reverse, timing, cancellationToken);
         }
         #endregion
 
@@ -82,22 +81,16 @@ namespace Batch_Loop_Async.UniTask
             PlayerLoopTiming timing = PlayerLoopTiming.Update,
             CancellationToken cancellationToken = default)
         {
-            if (totalIterations <= 0) return Array.Empty<TResult>();
-
             var results = new List<TResult>(totalIterations);
 
-            await UniTaskBatchLoop(
-                totalIterations,
-                batchSize,
+            await UniTaskBatchLoop(totalIterations, batchSize, 
                 (i) =>
                 {
                     TResult result = process(i);
                     if (result != null)
                         results.Add(result);
                 },
-                reverse,
-                timing,
-                cancellationToken);
+                reverse, timing, cancellationToken);
 
             return results.ToArray();
         }
@@ -113,7 +106,11 @@ namespace Batch_Loop_Async.UniTask
             PlayerLoopTiming timing = PlayerLoopTiming.Update,
             CancellationToken cancellationToken = default)
         {
-            if (listData == null || listData.Count == 0) return Array.Empty<TResult>();
+            if (listData == null)
+            {
+                Debug.LogWarning("List data must not be null");
+                return Array.Empty<TResult>();
+            }
 
             return await UniTaskBatchLoopGetAll(
                 listData.Count,
@@ -127,6 +124,135 @@ namespace Batch_Loop_Async.UniTask
 
         #region Get One
 
+        /// <summary>
+        /// Mencari dan mengembalikan 1 item pertama yang tidak null (Forward/Reverse).
+        /// Loop akan berhenti seketika (early return) begitu item ditemukan.
+        /// </summary>
+        public static async UniTask<TResult> UniTaskBatchLoopGetOne<TResult>(
+            int totalIterations,
+            int batchSize,
+            Func<int, TResult> process,
+            bool reverse = false,
+            PlayerLoopTiming timing = PlayerLoopTiming.Update,
+            CancellationToken cancellationToken = default)
+        {
+            if (totalIterations <= 0) return default;
+            batchSize = Mathf.Max(1, batchSize);
+
+            if (!reverse)
+            {
+                for (int i = 0; i < totalIterations; i += batchSize)
+                {
+                    int end = Mathf.Min(i + batchSize, totalIterations);
+                    for (int j = i; j < end; j++)
+                    {
+                        TResult result = process(j);
+                        if (result != null)
+                            return result; // Langsung berhenti seketika saat ketemu
+                    }
+
+                    await UniTask.NextFrame(timing, cancellationToken);
+                }
+            }
+            else
+            {
+                for (int i = totalIterations; i > 0; i -= batchSize)
+                {
+                    int start = Mathf.Max(i - batchSize, 0);
+                    for (int j = i - 1; j >= start; j--)
+                    {
+                        TResult result = process(j);
+                        if (result != null)
+                            return result; // Langsung berhenti seketika saat ketemu
+                    }
+
+                    await UniTask.NextFrame(timing, cancellationToken);
+                }
+            }
+
+            return default;
+        }
+
+        /// <summary>
+        /// Overload GetOne untuk koleksi IReadOnlyList (List, Array, dll.) dengan dukungan konversi tipe data.
+        /// </summary>
+        public static async UniTask<TResult> UniTaskBatchLoopGetOne<TSource, TResult>(
+            IReadOnlyList<TSource> listData,
+            int batchSize,
+            Func<TSource, TResult> process,
+            bool reverse = false,
+            PlayerLoopTiming timing = PlayerLoopTiming.Update,
+            CancellationToken cancellationToken = default)
+        {
+            if (listData == null || listData.Count == 0) return default;
+
+            return await UniTaskBatchLoopGetOne(
+                listData.Count,
+                batchSize,
+                (i) => process(listData[i]),
+                reverse,
+                timing,
+                cancellationToken);
+        }
+
+        #region Helper First / Last / Entire
+
+        // Helper untuk mencari dari depan (First)
+        public static async UniTask<TResult> UniTaskBatchLoopGetOneFirst<TResult>(
+            int totalIterations, int batchSize, Func<int, TResult> process,
+            PlayerLoopTiming timing = PlayerLoopTiming.Update, CancellationToken cancellationToken = default) =>
+            await UniTaskBatchLoopGetOne(totalIterations, batchSize, process, reverse: false, timing, cancellationToken);
+
+        public static async UniTask<TResult> UniTaskBatchLoopGetOneFirst<TSource, TResult>(
+            IReadOnlyList<TSource> listData, int batchSize, Func<TSource, TResult> process,
+            PlayerLoopTiming timing = PlayerLoopTiming.Update, CancellationToken cancellationToken = default) =>
+            await UniTaskBatchLoopGetOne(listData, batchSize, process, reverse: false, timing, cancellationToken);
+
+        // Helper untuk mencari dari belakang (Last)
+        public static async UniTask<TResult> UniTaskBatchLoopGetOneLast<TResult>(
+            int totalIterations, int batchSize, Func<int, TResult> process,
+            PlayerLoopTiming timing = PlayerLoopTiming.Update, CancellationToken cancellationToken = default) =>
+            await UniTaskBatchLoopGetOne(totalIterations, batchSize, process, reverse: true, timing, cancellationToken);
+
+        public static async UniTask<TResult> UniTaskBatchLoopGetOneLast<TSource, TResult>(
+            IReadOnlyList<TSource> listData, int batchSize, Func<TSource, TResult> process,
+            PlayerLoopTiming timing = PlayerLoopTiming.Update, CancellationToken cancellationToken = default) =>
+            await UniTaskBatchLoopGetOne(listData, batchSize, process, reverse: true, timing, cancellationToken);
+
+        // Helper untuk akumulasi nilai dari seluruh item (Aggregate / Reduce)
+        public static async UniTask<TResult> UniTaskBatchLoopGetOneEntire<TResult>(
+            int totalIterations, int batchSize, Func<TResult, int, TResult> process,
+            TResult initialValue = default, PlayerLoopTiming timing = PlayerLoopTiming.Update,
+            CancellationToken cancellationToken = default)
+        {
+            TResult accumulator = initialValue;
+            await UniTaskBatchLoop(totalIterations, batchSize, (i) =>
+            {
+                accumulator = process(accumulator, i);
+            }, reverse: false, timing, cancellationToken);
+            return accumulator;
+        }
+
+        public static async UniTask<TResult> UniTaskBatchLoopGetOneEntire<TSource, TResult>(
+            IReadOnlyList<TSource> listData, int batchSize, Func<TResult, TSource, TResult> process,
+            TResult initialValue = default, PlayerLoopTiming timing = PlayerLoopTiming.Update,
+            CancellationToken cancellationToken = default)
+        {
+            if (listData == null || listData.Count == 0) return initialValue;
+
+            return await UniTaskBatchLoopGetOneEntire(
+                listData.Count,
+                batchSize,
+                (acc, i) => process(acc, listData[i]),
+                initialValue,
+                timing,
+                cancellationToken);
+        }
+
+        #endregion
+
+        /*
+        // ========================== OLD IMPLEMENTATION ==========================
         public static async UniTask<T> UniTaskBatchLoopGetOne<T>(int totaliterations, int batchsize,
             Func<int, T> process, bool reverse = false)
         {
@@ -199,6 +325,8 @@ namespace Batch_Loop_Async.UniTask
             });
             return result;
         }
+        // ========================================================================
+        */
 
         #endregion
     }

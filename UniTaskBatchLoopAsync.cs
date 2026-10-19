@@ -81,6 +81,13 @@ namespace Batch_Loop_Async.UniTask
             PlayerLoopTiming timing = PlayerLoopTiming.Update,
             CancellationToken cancellationToken = default)
         {
+            
+            if (totalIterations <= 0)
+            {
+                Debug.LogWarning("Total iterations must be greater than 0");
+                return Array.Empty<TResult>();
+            }
+            
             var results = new List<TResult>(totalIterations);
 
             await UniTaskBatchLoop(totalIterations, batchSize, 
@@ -135,8 +142,14 @@ namespace Batch_Loop_Async.UniTask
             bool reverse = false,
             PlayerLoopTiming timing = PlayerLoopTiming.Update,
             CancellationToken cancellationToken = default)
+        where TResult : class
         {
-            if (totalIterations <= 0) return default;
+            if (totalIterations <= 0)
+            {
+                Debug.LogWarning("Total iterations must be greater than 0");
+                return null;
+            }
+            
             batchSize = Mathf.Max(1, batchSize);
 
             if (!reverse)
@@ -170,7 +183,7 @@ namespace Batch_Loop_Async.UniTask
                 }
             }
 
-            return default;
+            return null;
         }
 
         /// <summary>
@@ -183,8 +196,13 @@ namespace Batch_Loop_Async.UniTask
             bool reverse = false,
             PlayerLoopTiming timing = PlayerLoopTiming.Update,
             CancellationToken cancellationToken = default)
+        where TResult : class
         {
-            if (listData == null || listData.Count == 0) return default;
+            if (listData == null )
+            {
+                Debug.LogWarning("List data must not be null");
+                return null;
+            }
 
             return await UniTaskBatchLoopGetOne(
                 listData.Count,
@@ -195,139 +213,67 @@ namespace Batch_Loop_Async.UniTask
                 cancellationToken);
         }
 
-        #region Helper First / Last / Entire
+        
+        #endregion
+        
+        #region Get One Entire For Search Biggest Or Smallest One
 
-        // Helper untuk mencari dari depan (First)
-        public static async UniTask<TResult> UniTaskBatchLoopGetOneFirst<TResult>(
-            int totalIterations, int batchSize, Func<int, TResult> process,
-            PlayerLoopTiming timing = PlayerLoopTiming.Update, CancellationToken cancellationToken = default) =>
-            await UniTaskBatchLoopGetOne(totalIterations, batchSize, process, reverse: false, timing, cancellationToken);
-
-        public static async UniTask<TResult> UniTaskBatchLoopGetOneFirst<TSource, TResult>(
-            IReadOnlyList<TSource> listData, int batchSize, Func<TSource, TResult> process,
-            PlayerLoopTiming timing = PlayerLoopTiming.Update, CancellationToken cancellationToken = default) =>
-            await UniTaskBatchLoopGetOne(listData, batchSize, process, reverse: false, timing, cancellationToken);
-
-        // Helper untuk mencari dari belakang (Last)
-        public static async UniTask<TResult> UniTaskBatchLoopGetOneLast<TResult>(
-            int totalIterations, int batchSize, Func<int, TResult> process,
-            PlayerLoopTiming timing = PlayerLoopTiming.Update, CancellationToken cancellationToken = default) =>
-            await UniTaskBatchLoopGetOne(totalIterations, batchSize, process, reverse: true, timing, cancellationToken);
-
-        public static async UniTask<TResult> UniTaskBatchLoopGetOneLast<TSource, TResult>(
-            IReadOnlyList<TSource> listData, int batchSize, Func<TSource, TResult> process,
-            PlayerLoopTiming timing = PlayerLoopTiming.Update, CancellationToken cancellationToken = default) =>
-            await UniTaskBatchLoopGetOne(listData, batchSize, process, reverse: true, timing, cancellationToken);
-
-        // Helper untuk akumulasi nilai dari seluruh item (Aggregate / Reduce)
-        public static async UniTask<TResult> UniTaskBatchLoopGetOneEntire<TResult>(
-            int totalIterations, int batchSize, Func<TResult, int, TResult> process,
-            TResult initialValue = default, PlayerLoopTiming timing = PlayerLoopTiming.Update,
+        /// <summary>
+        /// Menyisir SELURUH data untuk mencari 1 item terbaik (misal: mencari nilai terbesar, terkecil, atau musuh terdekat).
+        /// Elemen pertama otomatis dijadikan patokan awal, lalu sisa elemen dibandingkan satu per satu secara batch per frame.
+        /// </summary>
+        public static async UniTask<T> UniTaskBatchLoopGetOneEntire<T>(
+            IReadOnlyList<T> listData,
+            int batchSize,
+            Func<T, T, T> compare,
+            PlayerLoopTiming timing = PlayerLoopTiming.Update,
             CancellationToken cancellationToken = default)
+        where T : class
         {
-            TResult accumulator = initialValue;
-            await UniTaskBatchLoop(totalIterations, batchSize, (i) =>
-            {
-                accumulator = process(accumulator, i);
-            }, reverse: false, timing, cancellationToken);
-            return accumulator;
-        }
+            T best = null;
 
-        public static async UniTask<TResult> UniTaskBatchLoopGetOneEntire<TSource, TResult>(
-            IReadOnlyList<TSource> listData, int batchSize, Func<TResult, TSource, TResult> process,
-            TResult initialValue = default, PlayerLoopTiming timing = PlayerLoopTiming.Update,
-            CancellationToken cancellationToken = default)
-        {
-            if (listData == null || listData.Count == 0) return initialValue;
-
-            return await UniTaskBatchLoopGetOneEntire(
-                listData.Count,
+            await UniTaskBatchLoop(
+                listData,
                 batchSize,
-                (acc, i) => process(acc, listData[i]),
-                initialValue,
+                (candidate) =>
+                {
+                    best = compare(best, candidate);
+                },
+                reverse: false,
                 timing,
                 cancellationToken);
+
+            return best;
         }
 
-        #endregion
-
-        /*
-        // ========================== OLD IMPLEMENTATION ==========================
-        public static async UniTask<T> UniTaskBatchLoopGetOne<T>(int totaliterations, int batchsize,
-            Func<int, T> process, bool reverse = false)
+        /// <summary>
+        /// Menyisir SELURUH iterasi untuk mencari 1 item terbaik berdasarkan indeks.
+        /// Membandingkan hasil satu per satu secara bertahap (batch) per frame.
+        /// </summary>
+        public static async UniTask<TResult> UniTaskBatchLoopGetOneEntire<TResult>(
+            int totalIterations,
+            int batchSize,
+            Func<TResult, int, TResult> compare,
+            PlayerLoopTiming timing = PlayerLoopTiming.Update,
+            CancellationToken cancellationToken = default)
+        where TResult : class
         {
-            if (!reverse)
-            {
-                for (int i = 0; i < totaliterations; i += batchsize)
+            TResult best = null;
+
+            await UniTaskBatchLoop(
+                totalIterations,
+                batchSize,
+                (i) =>
                 {
-                    int end = Mathf.Min(i + batchsize, totaliterations);
-                    for (int j = i; j < end; j++)
-                    {
-                        Debug.Log(j);
-                        T result = process(j);
-                        if (result != null)
-                            return result;
-                    }
+                    best = compare(best, i);
+                },
+                reverse: false,
+                timing,
+                cancellationToken);
 
-                    await UniTask.NextFrame(); // Prevent Unity freezing
-                }
-            }
-            else
-            {
-                for (int i = totaliterations; i > 0; i -= batchsize)
-                {
-                    int start = Mathf.Max(i - batchsize, 0);
-                    for (int j = i - 1; j >= start; j--)
-                    {
-                        Debug.Log(j);
-                        T result = process(j);
-                        if (result != null)
-                            return result;
-                    }
-
-                    await UniTask.Yield(); // Prevent Unity freezing
-                }
-            }
-
-            return default;
+            return best;
         }
-
-        public static async UniTask<T> UniTaskBatchLoopGetOneFirst<T>(int totaliterations, int batchsize,
-            Func<int, T> process) => await UniTaskBatchLoopGetOne(totaliterations, batchsize, (j) => process(j));
-
-        public static async UniTask<T>
-            UniTaskBatchLoopGetOneFirst<T>(T[] arraydata, int batchsize, Func<T, T> process) =>
-            await UniTaskBatchLoopGetOneFirst(arraydata.Length, batchsize, (i) => process(arraydata[i]));
-
-        public static async UniTask<T> UniTaskBatchLoopGetOneLast<T>(int totaliterations, int batchsize,
-            Func<int, T> process) => await UniTaskBatchLoopGetOne(totaliterations, batchsize, (j) => process(j), true);
-
-        public static async UniTask<T>
-            UniTaskBatchLoopGetOneLast<T>(T[] arraydata, int batchsize, Func<T, T> process) =>
-            await UniTaskBatchLoopGetOneLast(arraydata.Length, batchsize, (i) => process(arraydata[i]));
-
-        public static async UniTask<T> UniTaskBatchLoopGetOneEntire<T>(int totaliterations, int batchsize,
-            Func<int, T> process)
-        {
-            T result = default(T);
-            await UniTaskBatchLoop(totaliterations, batchsize, (j) => result = process(j));
-            return result;
-        }
-
-        public static async UniTask<T> UniTaskBatchLoopGetOneEntire<T>(T[] arraydata, int batchsize,
-            Func<T, T, T> process)
-        {
-            T result = default(T);
-            await UniTaskBatchLoopGetOneEntire(arraydata.Length, batchsize, (i) =>
-            {
-                result = process(result, arraydata[i]);
-                return result;
-            });
-            return result;
-        }
-        // ========================================================================
-        */
-
+        
         #endregion
     }
 }

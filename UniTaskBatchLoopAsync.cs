@@ -6,7 +6,6 @@ namespace Batch_Loop_Async.UniTask
     using Cysharp.Threading.Tasks;
     using UnityEngine;
 
-
     public static class UniTaskBatchLoopAsync
     {
         #region Common Loop
@@ -53,7 +52,7 @@ namespace Batch_Loop_Async.UniTask
         /// Memanggil fungsi utama UniTaskBatchLoop agar konsisten dengan pola GetAll.
         /// </summary>
         public static async UniTask UniTaskBatchLoop<T>(IReadOnlyList<T> listData, int batchSize, Action<T> process,
-            bool reverse = false, PlayerLoopTiming timing = PlayerLoopTiming.Update, 
+            bool reverse = false, PlayerLoopTiming timing = PlayerLoopTiming.Update,
             CancellationToken cancellationToken = default)
         {
             if (listData == null)
@@ -65,9 +64,10 @@ namespace Batch_Loop_Async.UniTask
             await UniTaskBatchLoop(listData.Count, batchSize, (i) => process(listData[i]),
                 reverse, timing, cancellationToken);
         }
+
         #endregion
 
-        #region Get All
+        #region Get All Qualified
 
         /// <summary>
         /// Menjalankan loop batch dan mengembalikan kumpulan hasilnya ke dalam Array (Forward/Reverse).
@@ -81,16 +81,16 @@ namespace Batch_Loop_Async.UniTask
             PlayerLoopTiming timing = PlayerLoopTiming.Update,
             CancellationToken cancellationToken = default)
         {
-            
+
             if (totalIterations <= 0)
             {
                 Debug.LogWarning("Total iterations must be greater than 0");
                 return Array.Empty<TResult>();
             }
-            
+
             var results = new List<TResult>(totalIterations);
 
-            await UniTaskBatchLoop(totalIterations, batchSize, 
+            await UniTaskBatchLoop(totalIterations, batchSize,
                 (i) =>
                 {
                     TResult result = process(i);
@@ -127,9 +127,10 @@ namespace Batch_Loop_Async.UniTask
                 timing,
                 cancellationToken);
         }
+
         #endregion
 
-        #region Get One
+        #region Get One First
 
         /// <summary>
         /// Mencari dan mengembalikan 1 item pertama yang tidak null (Forward/Reverse).
@@ -142,14 +143,14 @@ namespace Batch_Loop_Async.UniTask
             bool reverse = false,
             PlayerLoopTiming timing = PlayerLoopTiming.Update,
             CancellationToken cancellationToken = default)
-        where TResult : class
+            where TResult : class
         {
             if (totalIterations <= 0)
             {
                 Debug.LogWarning("Total iterations must be greater than 0");
                 return null;
             }
-            
+
             batchSize = Mathf.Max(1, batchSize);
 
             if (!reverse)
@@ -196,9 +197,9 @@ namespace Batch_Loop_Async.UniTask
             bool reverse = false,
             PlayerLoopTiming timing = PlayerLoopTiming.Update,
             CancellationToken cancellationToken = default)
-        where TResult : class
+            where TResult : class
         {
-            if (listData == null )
+            if (listData == null)
             {
                 Debug.LogWarning("List data must not be null");
                 return null;
@@ -213,10 +214,10 @@ namespace Batch_Loop_Async.UniTask
                 cancellationToken);
         }
 
-        
+
         #endregion
-        
-        #region Get One Entire For Search Biggest Or Smallest One
+
+        #region Get One Compare
 
         /// <summary>
         /// Menyisir SELURUH data untuk mencari 1 item terbaik (misal: mencari nilai terbesar, terkecil, atau musuh terdekat).
@@ -228,17 +229,14 @@ namespace Batch_Loop_Async.UniTask
             Func<T, T, T> compare,
             PlayerLoopTiming timing = PlayerLoopTiming.Update,
             CancellationToken cancellationToken = default)
-        where T : class
+            where T : class
         {
             T best = null;
 
             await UniTaskBatchLoop(
                 listData,
                 batchSize,
-                (candidate) =>
-                {
-                    best = compare(best, candidate);
-                },
+                (candidate) => { best = compare(best, candidate); },
                 reverse: false,
                 timing,
                 cancellationToken);
@@ -256,24 +254,21 @@ namespace Batch_Loop_Async.UniTask
             Func<TResult, int, TResult> compare,
             PlayerLoopTiming timing = PlayerLoopTiming.Update,
             CancellationToken cancellationToken = default)
-        where TResult : class
+            where TResult : class
         {
             TResult best = null;
 
             await UniTaskBatchLoop(
                 totalIterations,
                 batchSize,
-                (i) =>
-                {
-                    best = compare(best, i);
-                },
+                (i) => { best = compare(best, i); },
                 reverse: false,
                 timing,
                 cancellationToken);
 
             return best;
         }
-        
+
         #endregion
     }
 }
